@@ -119,172 +119,55 @@ multilevelannotationstep4 <- function(outloc,
             # chemscoremat_conf_levels2<-sapply(1:length(chemids),function(c)
 
             # chemscoremat_conf_levels2<-parLapply(cl,1:length(chemids),function(c)
-            chemscoremat_conf_levels <-
-                foreach(c = 1:length(chemids),
-                        .combine = rbind) %dopar% {
-                            cur_chemid <- chemids[c]
-
-                            curdata <-
-                                chemscoremat_highconf[which(chemscoremat_highconf$chemical_ID ==
-                                                                cur_chemid),]
-
-                            bool_check = 1
-
-
-                            curdata <-
-                                curdata[order(curdata$Adduct),]
-
-                            if ((is.na(filter.by) == FALSE)[1] &&
-                                (bool_check ==
-                                 1)) {
-                                check_adduct <- which(curdata$Adduct %in%
-                                                          filter.by)
-                                if (length(check_adduct) > 0) {
-                                    bool_check = 1
-                                } else {
-                                    bool_check = 0
-                                }
-
-                            }
-                            if (bool_check == 1) {
-                                # print(cur_chemid) print(curdata)
-                                final_res <-
-                                    get_confidence_stage4(
-                                        curdata,
-                                        max_diff_rt,
-                                        adduct_weights = adduct_weights,
-                                        filter.by = filter.by,
-                                        max_isp = max_isp,
-                                        min_ions_perchem = min_ions_perchem
-                                    )
-                                Confidence <-
-                                    0
-                                if ((final_res != "None")[1]) {
-                                    if (is.na(final_res[1, 1]) == FALSE) {
-                                        # Add validation for row counts
-                                        if (nrow(final_res) == nrow(curdata)) {
-                                            Confidence <- as.numeric(as.character(final_res[,1]))
-                                            curdata <- final_res
-                                        } else {
-                                            # If row counts don't match, set curdata to a single row with Confidence 0
-                                            warning(paste("Row count mismatch for chemical ID", cur_chemid, 
-                                                        "- expected", nrow(curdata), "rows but got", nrow(final_res), "rows"))
-                                            Confidence <- 0
-                                            # Create a single-row data frame with the same columns as curdata, filled with NA except chemical_ID
-                                            curdata <- curdata[1, , drop=FALSE]
-                                            curdata[,] <- NA
-                                            curdata$chemical_ID <- cur_chemid
-                                        }
-                                        rm(final_res)
-                                        if (Confidence[1] < 2) {
-                                            if (length(which(
-                                                curdata$Adduct %in%
-                                                adduct_weights[which(as.numeric(adduct_weights[,
-                                                                                               2]) > 0), 1]
-                                            )) > 0) {
-                                                if (curdata$score[1] > 10) {
-                                                    mnum <-
-                                                        max(as.numeric(
-                                                            as.character(adduct_weights[which(adduct_weights[,
-                                                                                                             1] %in% curdata$Adduct), 2])
-                                                        ))[1]
-                                                    curdata <-
-                                                        curdata[which(curdata$Adduct %in%
-                                                                          adduct_weights[which(as.numeric(
-                                                                              as.character(adduct_weights[,
-                                                                                                          2])
-                                                                          ) >= mnum), 1]),]
-                                                    Confidence <-
-                                                        2
-                                                }
-                                            }
-                                        }
-
-                                    }
-                                }
-                            } else {
-                                Confidence <- 0
-                                if (length(which(curdata$Adduct %in% adduct_weights[,
-                                                                                    1])) > 0) {
-                                    if (curdata$score[1] >= 10) {
-                                        # curdata<-curdata[which(curdata$Adduct%in%adduct_weights[,1]),]
-                                        mnum <-
-                                            max(as.numeric(as.character(
-                                                adduct_weights[which(adduct_weights[,
-                                                                                    1] %in% curdata$Adduct), 2]
-                                            )))[1]
-                                        # curdata<-curdata[which(curdata$Adduct%in%adduct_weights[which(as.numeric(as.character(adduct_weights[,2]))>=mnum),1]),]
-                                        if (length(which(curdata$Adduct %in%
-                                                         filter.by)) > 0) {
-                                            curdata <- curdata[which(curdata$Adduct %in%
-                                                                         filter.by),]
-                                            Confidence <-
-                                                2
-                                        }
-
-                                    }
-                                }
-
-                            }
-
-                            if (nrow(curdata) > 1) {
-                                if (curdata$score[1] < 10) {
-                                    if (length(unique(curdata$Adduct)) <
-                                        2) {
-                                        Confidence <- 0
-                                    } else {
-                                        if (FALSE) {
-                                            if (Confidence < 2) {
-                                                if (length(which(
-                                                    curdata$Adduct %in%
-                                                    adduct_weights[which(adduct_weights[,
-                                                                                        2] > 1), 1]
-                                                )) > 0) {
-                                                    if (curdata$score[1] > 10) {
-                                                        # Confidence<-2
-
-                                                        mnum <-
-                                                            max(as.numeric(
-                                                                as.character(
-                                                                    adduct_weights[which(adduct_weights[,
-                                                                                                        1] %in% curdata$Adduct),
-                                                                                   2]
-                                                                )
-                                                            ))[1]
-                                                        curdata <-
-                                                            curdata[which(curdata$Adduct %in%
-                                                                              adduct_weights[which(as.numeric(
-                                                                                  as.character(
-                                                                                      adduct_weights[,
-                                                                                                     2]
-                                                                                  )
-                                                                              ) >= mnum), 1]),]
-                                                        Confidence <-
-                                                            2
-
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-
-                            curdata <-
-                                cbind(Confidence, curdata)
-                            curdata <-
-                                as.data.frame(curdata)
-
-                            curdata <-
-                                curdata[, c("Confidence", "chemical_ID")]
-                            curdata <-
-                                unique(curdata)
-                            # curdata<-as.matrix(curdata) print(mem_used())
-                            # rm(curdata)
-                            return(curdata)
-                            # return(Confidence)
-                        }  #)
+          chemscoremat_conf_levels <- foreach(c = 1:length(chemids), .combine = rbind) %dopar% {
+            tryCatch({
+              cur_chemid <- chemids[c]
+              
+              curdata <- chemscoremat_highconf[chemscoremat_highconf$chemical_ID == cur_chemid, ]
+              curdata <- curdata[order(curdata$Adduct), ]
+              bool_check <- 1
+              
+              if (!is.na(filter.by)[1] && bool_check == 1) {
+                check_adduct <- which(curdata$Adduct %in% filter.by)
+                bool_check <- if (length(check_adduct) > 0) 1 else 0
+              }
+              
+              if (bool_check == 1) {
+                final_res <- get_confidence_stage4(
+                  curdata,
+                  max_diff_rt,
+                  adduct_weights = adduct_weights,
+                  filter.by = filter.by,
+                  max_isp = max_isp,
+                  min_ions_perchem = min_ions_perchem
+                )
+                
+                if (!identical(final_res, "None") && !is.na(final_res[1, 1])) {
+                  if (nrow(final_res) == nrow(curdata)) {
+                    Confidence <- as.numeric(as.character(final_res[, 1]))
+                    curdata <- final_res
+                  } else {
+                    warning(paste("Row mismatch for", cur_chemid, "- skipping."))
+                    return(data.frame(Confidence = 0, chemical_ID = cur_chemid))
+                  }
+                } else {
+                  Confidence <- 0
+                }
+              } else {
+                Confidence <- 0
+              }
+              
+              curdata <- cbind(Confidence, curdata)
+              curdata <- as.data.frame(curdata)
+              curdata <- curdata[, c("Confidence", "chemical_ID")]
+              curdata <- unique(curdata)
+              return(curdata)
+            }, error = function(e) {
+              warning(paste("Failed to process chemical ID:", chemids[c], "-", e$message))
+              return(data.frame(Confidence = 0, chemical_ID = chemids[c]))
+            })
+          }
+          
             # chemids<-c('HMDB00277','HMDB00222','HMDB00043')
 
             # stopCluster(cl)
