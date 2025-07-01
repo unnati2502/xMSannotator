@@ -1593,8 +1593,7 @@ multilevelannotation <- function(dataA,
 
             }
 
-            tall <- table(multiresmat$chemical_ID, multiresmat$mz)
-
+            tall <- table(multiresmat$chemical_ID, round(multiresmat$mz, 4))
             tall_mznames <- colnames(tall)
 
 
