@@ -161,13 +161,20 @@ multilevelannotationstep4 <- function(outloc,
                                     0
                                 if ((final_res != "None")[1]) {
                                     if (is.na(final_res[1, 1]) == FALSE) {
-
-                                        Confidence <- as.numeric(as.character(final_res[,
-                                                                                        1]))
-
-                                        curdata <-
-                                            final_res  #[,-c(1)]
-
+                                        # Add validation for row counts
+                                        if (nrow(final_res) == nrow(curdata)) {
+                                            Confidence <- as.numeric(as.character(final_res[,1]))
+                                            curdata <- final_res
+                                        } else {
+                                            # If row counts don't match, set curdata to a single row with Confidence 0
+                                            warning(paste("Row count mismatch for chemical ID", cur_chemid, 
+                                                        "- expected", nrow(curdata), "rows but got", nrow(final_res), "rows"))
+                                            Confidence <- 0
+                                            # Create a single-row data frame with the same columns as curdata, filled with NA except chemical_ID
+                                            curdata <- curdata[1, , drop=FALSE]
+                                            curdata[,] <- NA
+                                            curdata$chemical_ID <- cur_chemid
+                                        }
                                         rm(final_res)
                                         if (Confidence[1] < 2) {
                                             if (length(which(
