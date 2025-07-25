@@ -321,6 +321,7 @@ multilevelannotation <- function(dataA,
             write.csv(a1, file = fname_c)
 
             rm(global_cor)
+            gc()
 
             # using dynamic
             mycl_metabs <- cutreeDynamic(
@@ -490,8 +491,7 @@ multilevelannotation <- function(dataA,
 
                 rm(hmdbAllinf)
                 rm(hmdbAllinf, envir = .GlobalEnv)
-
-
+                gc()
 
 
                 suppressWarnings(if (is.na(customIDs)[1] ==
@@ -537,7 +537,7 @@ multilevelannotation <- function(dataA,
                                                             20)]
 
                         rm(hmdbAllinfv3.6)
-
+                        gc()
 
                     } else {
                         if (is.na(biofluid.location) == FALSE &
@@ -672,6 +672,7 @@ multilevelannotation <- function(dataA,
                 })
 
                 rm(hmdbAllinfv3.6, envir = .GlobalEnv)
+                gc()
                 data(hmdbCompMZ)
 
                 hmdbCompMZ$mz <-
@@ -759,6 +760,7 @@ multilevelannotation <- function(dataA,
                     rm(keggCompMZ)
 
                     rm(keggCompMZ, envir = .GlobalEnv)
+                    gc()
 
                 } else {
                     if (db_name == "LipidMaps") {
@@ -787,6 +789,7 @@ multilevelannotation <- function(dataA,
 
                         rm(lipidmapsCompMZ)
                         rm(lipidmapsCompMZ, envir = .GlobalEnv)
+                        gc()
 
 
                     } else {
@@ -814,6 +817,7 @@ multilevelannotation <- function(dataA,
 
                             rm(t3dbCompMZ)
                             rm(t3dbCompMZ, envir = .GlobalEnv)
+                            gc()
 
 
                         } else {
@@ -870,7 +874,7 @@ multilevelannotation <- function(dataA,
                                 rm(mz_search_list)
                                 rm(customDB)
                                 rm(customDB, envir = .GlobalEnv)
-
+                                gc()
 
 
                             } else {
@@ -994,6 +998,7 @@ multilevelannotation <- function(dataA,
                 # save(chemCompMZ_unique_formulas,file='chemCompMZ_unique_formulas.Rda')
                 save(chemCompMZ, file = "chemCompMZ.Rda")
                 rm(chemCompMZ)
+                gc()
 
                 # formula_ID<-paste('Formula',seq(1:dim(chemCompMZ_unique_formulas)[1]),sep='_')
                 # chemCompMZ_unique_formulas$chemical_ID<-formula_ID
@@ -1012,10 +1017,20 @@ multilevelannotation <- function(dataA,
                 colnames(formula_id_mat) <- c("Formula_ID",
                                               "Formula")
 
-                chemCompMZ_unique_formulas <-
-                    merge(chemCompMZ_unique_formulas,
-                          formula_id_mat,
-                          by = "Formula")
+                
+                # Convert both data frames to data.tables
+                setDT(chemCompMZ_unique_formulas)
+                setDT(formula_id_mat)
+                
+                # Perform the merge
+                chemCompMZ_unique_formulas <- merge(
+                  chemCompMZ_unique_formulas,
+                  formula_id_mat,
+                  by = "Formula",
+                  allow.cartesian = TRUE  # if necessary
+                )
+                chemCompMZ_unique_formulas <- as.data.frame(chemCompMZ_unique_formulas)
+                
 
                 chemCompMZ_unique_formulas$chemical_ID <-
                     chemCompMZ_unique_formulas$Formula_ID
@@ -1089,6 +1104,7 @@ multilevelannotation <- function(dataA,
                 # save(l2,file='l2.Rda')
 
                 rm(chemCompMZ)
+                gc()
                 levelB_res <- {
 
                 }
@@ -1100,6 +1116,7 @@ multilevelannotation <- function(dataA,
 
 
                 rm(l2)
+                gc()
 
                 if (nrow(levelB_res) < 1) {
                     stop("No matches found.")
@@ -1448,15 +1465,19 @@ multilevelannotation <- function(dataA,
 
                     rm(diffmatC)
                     rm(diffmatB)
+                    gc()
                 } else {
                     diffmatD <- diffmatB  #[,c(1:10)]
                     rm(diffmatB)
+                    gc()
                 }
             } else {
                 diffmatD <- diffmatB  #[,c(1:10)]
                 rm(diffmatB)
+                gc()
             }
             rm(levelA_res2)
+            gc()
             diffmatD <- as.data.frame(diffmatD)
             diffmatD$mz <- as.numeric(diffmatD$mz)
 
@@ -1492,6 +1513,7 @@ multilevelannotation <- function(dataA,
                 cbind(levelA_res1[, c(1:4)], mean_int_vec,
                       MD)
             rm(MD)
+            gc()
 
             cnames <- colnames(levelA_res1)
             cnames[1] <- "ISgroup"
@@ -1544,6 +1566,7 @@ multilevelannotation <- function(dataA,
                 multiresmat[order(multiresmat$Module_RTclust),]
 
             rm(m1)
+            gc()
 
 
 
@@ -1670,10 +1693,12 @@ multilevelannotation <- function(dataA,
             rm(levelA_res)
             rm(levelB_res)
             rm(m2)
+            gc()
 
             mchemdata <- multiresmat
 
             rm(multiresmat)
+            gc()
 
             mchemdata <- as.data.frame(mchemdata)
 
@@ -1822,6 +1847,7 @@ multilevelannotation <- function(dataA,
             rm(mchemdata)
             rm(chemids)
             rm(mzid)
+            gc()
             try(rm(global_cor), silent = TRUE)
             rm(isop_res_md)
             rm(level_module_isop_annot)
@@ -1833,7 +1859,9 @@ multilevelannotation <- function(dataA,
             rm(levelA_res1)
 
             rm(list = ls())
+            gc()
             load("tempobjects.Rda")
+            
         } else {
             print("Status 1: Skipping step 1.")
             print("Status 2: Using existing step1_results.Rda file.")
@@ -1907,6 +1935,7 @@ multilevelannotation <- function(dataA,
             # print('Memory used after step2 before removing all
             # objects') print(mem_used())
             rm(list = ls())
+            gc()
 
             try(rm(hmdbCompMZ), silent = TRUE)
 
@@ -1933,6 +1962,7 @@ multilevelannotation <- function(dataA,
 
                 setwd(outloc2)
                 rm(list = ls())
+                gc()
 
                 # print('Memory used before step4') print(mem_used())
 
@@ -1965,20 +1995,19 @@ multilevelannotation <- function(dataA,
                 # print('Memory used after step4') print(mem_used())
 
                 rm(list = ls())
+                gc()
 
                 load("tempobjects.Rda")
 
 
-
-
                 try(rm(hmdbAllinf, env = .GlobalEnv), silent = TRUE)
-
 
 
                 if (redundancy_check == TRUE) {
                     print("Status 6:Redundancy filtering")
 
                     rm(list = ls())
+                    gc()
 
                     load("tempobjects.Rda")
 

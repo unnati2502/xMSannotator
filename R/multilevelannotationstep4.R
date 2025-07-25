@@ -203,15 +203,28 @@ multilevelannotationstep4 <- function(outloc,
     # write.table(chemconf_levels,file='confidence_levels_chemicals.txt',sep='\t',row.names=FALSE)
 
     # curated_res<-cbind(chemscoremat_conf_levels[,1],chemscoremat_highconf)
-    curated_res <-
-        merge(chemscoremat_conf_levels, chemscoremat_highconf,
-              by = "chemical_ID")
+    library(data.table)
+    
+    # Convert to data.tables
+    setDT(chemscoremat_conf_levels)
+    setDT(chemscoremat_highconf)
+    
+    # Perform the merge
+    curated_res <- merge(
+      chemscoremat_conf_levels,
+      chemscoremat_highconf,
+      by = "chemical_ID",
+      all = FALSE               
+    )
+    
+    curated_res <- as.data.frame(curated_res)
 
     cnames <- colnames(curated_res)
     # cnames[3]<-'score' #'Confidence'
     colnames(curated_res) <- as.character(cnames)
 
     rm(chemscoremat_highconf)
+    gc()
 
     curated_res_isp_check <- gregexpr(text = curated_res$Adduct,
                                       pattern = "(_\\[(\\+|\\-)[0-9]*\\])")
@@ -343,6 +356,7 @@ multilevelannotationstep4 <- function(outloc,
 
             g1 <- ghilicpos$common
             rm(ghilicpos)
+            gc()
 
             if ((is.na(max_diff_rt) == FALSE)[1]) {
                 # g1<-g1[order(g1$index.B,g1$time.difference),]

@@ -12,6 +12,7 @@ multilevelannotationstep5 <- function(outloc, max.mz.diff = 5,
         
         curated_res <- chemscoremat
         rm(chemscoremat)
+        gc()
     }
     curated_res <- as.data.frame(curated_res)
     curated_res$mz <- as.numeric(curated_res$mz)
@@ -65,6 +66,7 @@ multilevelannotationstep5 <- function(outloc, max.mz.diff = 5,
     s1 <- apply(t1, 1, sum)
     
     rm(t1)
+    gc()
     
     mzunique <- colnames(which(s1 == 1))
     

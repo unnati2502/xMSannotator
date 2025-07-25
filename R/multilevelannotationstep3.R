@@ -18,6 +18,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
     
     rm(global_cor, env = .GlobalEnv)
     # rm(dataA)
+    gc()
     setwd(outloc1)
     
     num_sets <- length(chemids_split)
@@ -29,6 +30,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
     
     rm(dataA)
     # rm(levelA_res1)
+    gc()
     
     # print(ls())
     
@@ -95,9 +97,20 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
     
     chemscoremat <- cbind(chemscoremat, tempadduct)
     
-    chemscoremat <- merge(chemscoremat, chemCompMZ[, c(2:4, 
-        6)], by = c("Formula", "Adduct"))
+    library(data.table)
     
+    setDT(chemscoremat)
+    setDT(chemCompMZ)
+    
+    chemCompMZ_subset <- chemCompMZ[, .SD, .SDcols = c(2:4, 6)]
+    
+    chemscoremat <- merge(
+      chemscoremat,
+      chemCompMZ_subset,
+      by = c("Formula", "Adduct"),
+      allow.cartesian = TRUE  
+    )
+    chemscoremat <- as.data.frame(chemscoremat)
     
     # y because we want chemCompMZ ID and Name
     chemscoremat <- chemscoremat[, c("cur_chem_score", "Module_RTclust", 
@@ -156,9 +169,19 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
         
         m2 <- ldply(m1, rbind)
         
-        chemscoremat <- merge(chemscoremat, keggotherinf, 
-            by.x = "chemical_ID", by.y = "KEGGID")
-        
+        # Convert both to data.tables 
+        setDT(chemscoremat)
+        setDT(keggotherinf)
+       
+        chemscoremat <- merge(
+          chemscoremat,
+          keggotherinf,
+          by.x = "chemical_ID",
+          by.y = "KEGGID",
+          all = FALSE,              
+          allow.cartesian = TRUE   
+        )
+        chemscoremat <- as.data.frame(chemscoremat)
         
         # write.table(chemscoremat,file=paste('xMSannotator_',db_name,'scorematotherinf_stage1.txt',sep=''),sep='\t',row.names=FALSE)
         # chemscoremat<-read.table('xMSannotator_KEGGscorematotherinf_stage1.txt',sep='\t',header=TRUE)
@@ -230,6 +253,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                     all_notcurpath_numchem), nrow = 2)
                   
                   rm(curmchemicaldata2)
+                  gc()
                   p1 <- fisher.test(counts)
                   p1 <- p1$p.value
                   
@@ -292,6 +316,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                               1])), ]
                           a <- length(unique(cur_module_data$chemical_ID))
                           rm(cur_module_data)
+                          gc()
                           
                           cur_module_data2 <- chemscoremat[which(chemscoremat$module_num == 
                             cur_module & chemscoremat$score >= 
@@ -301,6 +326,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                           b <- length(unique(cur_module_data2$chemical_ID)) - 
                             a
                           rm(cur_module_data2)
+                          gc()
                           
                           other_module_data <- chemscoremat[which(chemscoremat$module_num != 
                             cur_module & chemscoremat$chemical_ID %in% 
@@ -310,6 +336,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                               1])), ]
                           c <- length(unique(other_module_data$chemical_ID))
                           rm(other_module_data)
+                          gc()
                           
                           other_module_data2 <- chemscoremat[which(chemscoremat$module_num != 
                             cur_module & chemscoremat$score >= 
@@ -323,6 +350,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                           d <- length(unique(other_module_data2$chemical_ID)) - 
                             c
                           rm(other_module_data2)
+                          gc()
                           
                           
                           counts = matrix(data = c(a, c, 
@@ -395,6 +423,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                   
                 }
                 rm(curmchemicaldata1)
+                gc()
             }
         }
         
@@ -412,6 +441,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
             
             hmdbAllinfv3.5 <- hmdbAllinf[, -c(26:27)]  #dbAllinf[,-c(26:27)]
             rm(hmdbAllinf, envir = .GlobalEnv)
+            gc()
             
             # hmdbAllinfv3.5<-gsub(x=hmdbAllinfv3.5,pattern='\n[\\s]+',replacement='')
             
@@ -433,12 +463,18 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
             
             m2 <- ldply(m1, rbind)
             
+            setDT(chemscoremat)
+            setDT(hmdbAllinfv3.5)
+            
             chemscoremat <- merge(chemscoremat, hmdbAllinfv3.5, 
-                by.x = "chemical_ID", by.y = "HMDBID")
+                by.x = "chemical_ID", by.y = "HMDBID", allow.cartesian = TRUE)
+            
+            chemscoremat <- as.data.frame(chemscoremat)
             
             # write.table(chemscoremat,file=paste('xMSannotator_',db_name,'scoremat_stage1.txt',sep=''),sep='\t',row.names=FALSE)
             
             rm(hmdbAllinfv3.5)
+            gc()
             
             chemids <- as.character(chemscoremat$chemical_ID)
             
@@ -507,6 +543,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                       all_notcurpath_numchem), nrow = 2)
                     
                     rm(curmchemicaldata2)
+                    gc()
                     p1 <- fisher.test(counts)
                     p1 <- p1$p.value
                     
@@ -588,6 +625,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                                 1])), ]
                             a <- length(unique(cur_module_data$chemical_ID))
                             rm(cur_module_data)
+                            gc()
                             
                             cur_module_data2 <- chemscoremat[which(chemscoremat$module_num == 
                               cur_module & chemscoremat$score >= 
@@ -597,6 +635,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                             b <- length(unique(cur_module_data2$chemical_ID)) - 
                               a
                             rm(cur_module_data2)
+                            gc()
                             
                             other_module_data <- chemscoremat[which(chemscoremat$module_num != 
                               cur_module & chemscoremat$chemical_ID %in% 
@@ -606,6 +645,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                                 1])), ]
                             c <- length(unique(other_module_data$chemical_ID))
                             rm(other_module_data)
+                            gc()
                             
                             other_module_data2 <- chemscoremat[which(chemscoremat$module_num != 
                               cur_module & chemscoremat$score >= 
@@ -616,6 +656,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                             d <- length(unique(other_module_data2$chemical_ID)) - 
                               c
                             rm(other_module_data2)
+                            gc()
                             
                             counts = matrix(data = c(a, c, 
                               b, d), nrow = 2)
@@ -705,6 +746,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                     
                   }
                   rm(curmchemicaldata1)
+                  gc()
                 }
                 
                 
@@ -736,6 +778,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
     }
     
     rm(curmchemicaldata1)
+    gc()
     
     cnames <- colnames(chemscoremat)
     
@@ -758,6 +801,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
         
         chemscoremat_highconf <- chemscoremat  #[which(chemscoremat$score>=scorethresh),]
         rm(chemscoremat)
+        gc()
     }
     
     
@@ -782,6 +826,7 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
         "filter.by")
     rm("chemCompMZ", "mchemdata", "hmdbAllinf", "hmdbAllinfv3.6", 
         "dbAllinf")
+    gc()
     
     
     return(chemscoremat_highconf)

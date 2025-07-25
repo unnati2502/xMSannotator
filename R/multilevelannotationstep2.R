@@ -126,17 +126,21 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
                   # print(chem_score)
                 }
                 rm(chem_score)
+                gc()
                 chemscoremat <- na.omit(chemscoremat)
                 chemscoremat <- as.data.frame(chemscoremat)
             }
         } else {
             rm(chem_score)
+            gc()
         }
         rm("curmchemdata", "isp_masses_mz_data", "mzid_cur", 
             "chemid")
         
+        
         suppressWarnings(rm(hmdbCompMZ))
         suppressWarnings(rm(hmdbAllinf))
+        gc()
         
         # chemscoremat<-chemscoremat[,c(1:7,9,11,14)]
         # chemscoremat$MatchCategory[which(chemscoremat$MatchCategory=='Multiple')]<-'M'
@@ -160,6 +164,7 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
     
     curchemscoremat <- ldply(chem_score2, rbind)
     rm(chem_score2)
+    gc()
     
     # save(chem_score2,file='chem_scoreA.Rda')
     cur_fname <- paste("chem_score", list_number, ".Rda", 
@@ -178,7 +183,6 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
     
     
     rm(list = ls())
-    
-    
+    gc()
     
 }
