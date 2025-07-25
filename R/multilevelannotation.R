@@ -206,7 +206,7 @@ multilevelannotation <- function(dataA,
     suppressWarnings(dir.create(outloc))
     setwd(outloc)
 
-    if (queryadductlist == "all" & mode == "pos") {
+    if (queryadductlist[1] == "all" & mode == "pos") {
         adduct_names <- adduct_table$Adduct[(adduct_table$Type ==
                                                  "S" &
                                                  adduct_table$Mode == "positive") | (adduct_table$Type ==
@@ -216,7 +216,7 @@ multilevelannotation <- function(dataA,
                                                adduct_names),]
 
     } else {
-        if (queryadductlist == "all" & mode == "neg") {
+        if (queryadductlist[1] == "all" & mode == "neg") {
             adduct_names <- adduct_table$Adduct[(adduct_table$Type ==
                                                      "S" & adduct_table$Mode == "negative") |
                                                     (adduct_table$Type == gradienttype &
@@ -440,7 +440,7 @@ multilevelannotation <- function(dataA,
             dataA <- dataA[, c(1:2)]
 
 
-            if (queryadductlist == "all" & mode == "pos") {
+            if (queryadductlist[1] == "all" & mode == "pos") {
                 adduct_names <- adduct_table$Adduct[(adduct_table$Type ==
                                                          "S" & adduct_table$Mode == "positive") |
                                                         (adduct_table$Type == gradienttype &
@@ -452,7 +452,7 @@ multilevelannotation <- function(dataA,
                                            adduct_names),]
 
             } else {
-                if (queryadductlist == "all" & mode == "neg") {
+                if (queryadductlist[1] == "all" & mode == "neg") {
                     adduct_names <- adduct_table$Adduct[(adduct_table$Type ==
                                                              "S" & adduct_table$Mode == "negative") |
                                                             (
