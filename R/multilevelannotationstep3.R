@@ -1,158 +1,130 @@
-multilevelannotationstep3 <- function(outloc1, adduct_weights = NA, 
-    num_sets = NA, boostIDs = NA, pathwaycheckmode = "p", 
-    dbAllinf = NA, scorethresh = 0.1) {
-    
+# Helper: Load prerequisites and set working directory
+.load_step3_context <- function(outloc1) {
+    if (!dir.exists(outloc1)) {
+        suppressWarnings(dir.create(outloc1, recursive = TRUE))
+    }
     setwd(outloc1)
-    
-    
-    if (is.na(num_sets) == FALSE) {
-        
-        num_sets_1 = num_sets
-    } else {
-        
-        num_sets_1 = NA
+    if (!file.exists("step1_results.Rda")) {
+        stop("step1_results.Rda not found in outloc1: ", normalizePath(outloc1, winslash = "/", mustWork = FALSE))
+    }
+    if (!file.exists("chemCompMZ.Rda")) {
+        stop("chemCompMZ.Rda not found in outloc1: ", normalizePath(outloc1, winslash = "/", mustWork = FALSE))
     }
     load("step1_results.Rda")
     load("chemCompMZ.Rda")
+    # Cleanup globals as in original
     rm(global_cor)
-    
-    rm(global_cor, env = .GlobalEnv)
-    # rm(dataA)
+    suppressWarnings(try(rm(global_cor, env = .GlobalEnv), silent = TRUE))
     gc()
-    setwd(outloc1)
-    
-    num_sets <- length(chemids_split)
-    
-    if (is.na(num_sets_1) == FALSE) {
-        num_sets = num_sets_1
-    }
-    
-    
-    rm(dataA)
-    # rm(levelA_res1)
-    gc()
-    
-    # print(ls())
-    
-    if (num_sets >= length(chemids_split)) {
-        num_sets <- length(chemids_split)
-        
-        
-    }
-    
-    
-    
-    outloc <- outloc1
-    
-    
+}
+
+# Helper: Read all Stage2 chem_score*.Rda and construct base graph table
+.build_graph_from_stage2 <- function(outloc1, adduct_weights, num_sets) {
+    # adduct weights default handling (preserve behavior)
     if (is.na(adduct_weights)[1] == TRUE) {
         data(adduct_weights)
         adduct_weights <- as.data.frame(adduct_weights)
-        # print(dim(adduct_weights))
-        
         adduct_weights1 <- matrix(nrow = 2, ncol = 2, 0)
         adduct_weights1[1, ] <- c("M+H", 1)
         adduct_weights1[2, ] <- c("M-H", 1)
         adduct_weights <- as.data.frame(adduct_weights1)
         colnames(adduct_weights) <- c("Adduct", "Weight")
-        
     }
-    outloc1 <- paste(outloc, "/stage2/", sep = "")
-    suppressWarnings(dir.create(outloc1))
-    setwd(outloc1)
-    
-    chemscoremat <- {
+
+    # Determine number of sets
+    num_sets_total <- length(chemids_split)
+    if (!is.na(num_sets)) {
+        num_sets_total <- num_sets
     }
-    
-    # print('num_sets') print(num_sets)
-    # print(length(chemids_split))
-    
-    # for(sind in seq(1,num_sets))
-    chemscoremat <- lapply(1:num_sets, function(sind) {
+    if (num_sets_total >= length(chemids_split)) {
+        num_sets_total <- length(chemids_split)
+    }
+
+    # Read all chem_score*.Rda from Stage2
+    stage2_dir <- file.path(outloc1, "stage2")
+    suppressWarnings(dir.create(stage2_dir, recursive = TRUE))
+    setwd(stage2_dir)
+
+    message("[Stage 3] Reading Stage 2 score files from ", normalizePath(stage2_dir, winslash = "/", mustWork = FALSE))
+    chemscore_list <- lapply(1:num_sets_total, function(sind) {
         cur_fname <- paste("chem_score", sind, ".Rda", sep = "")
-        
-        try(load(cur_fname), silent = TRUE)
-        
-        curchemscoremat <- as.data.frame(curchemscoremat)
-        
-        curchemscoremat$Formula <- gsub(curchemscoremat$Formula, 
-            pattern = "_.*", replacement = "")
-        
-        # colnames(curchemscoremat)<-c('cur_chem_score','Module_RTclust','mz','time',
-        # 'MatchCategory','theoretical.mz','chemical_ID','Name','Formula','MonoisotopicMass','Adduct','ISgroup','time.y','mean_int_vec','MD')
-        # curchemscoremat<-curchemscoremat[,1:14]
-        # print(dim(curchemscoremat))
-        # print(colnames(curchemscoremat))
-        # chemscoremat<-rbind(chemscoremat,curchemscoremat)
-        return(curchemscoremat)
+        ok <- try(load(cur_fname), silent = TRUE)
+        if (inherits(ok, "try-error") || !exists("curchemscoremat")) {
+            return(NULL)
+        }
+        cur <- as.data.frame(curchemscoremat)
+        # Normalize formula/adduct fields for graph-building
+        cur$Formula <- gsub(cur$Formula, pattern = "_.*", replacement = "")
+        return(cur)
     })
-    
-    chemscoremat <- ldply(chemscoremat, rbind)
+
+    chemscore_list <- chemscore_list[!vapply(chemscore_list, is.null, logical(1))]
+    if (length(chemscore_list) == 0) {
+        stop("No Stage 2 chem_score*.Rda files could be read. Stage 3 cannot proceed.")
+    }
+
+    chemscoremat <- ldply(chemscore_list, rbind)
     chemscoremat <- as.data.frame(chemscoremat)
-    
+
+    # Preserve original adduct (with isotope suffix) in temp column
     tempadduct <- chemscoremat$Adduct
-    
-    chemscoremat$Adduct <- gsub(chemscoremat$Adduct, pattern = "_.*", 
-        replacement = "")
-    
+    chemscoremat$Adduct <- gsub(chemscoremat$Adduct, pattern = "_.*", replacement = "")
     chemscoremat <- cbind(chemscoremat, tempadduct)
-    
+
+    # Merge with chemCompMZ (subset of columns 2:4, 6)
     library(data.table)
-    
     setDT(chemscoremat)
     setDT(chemCompMZ)
-    
     chemCompMZ_subset <- chemCompMZ[, .SD, .SDcols = c(2:4, 6)]
-    
     chemscoremat <- merge(
-      chemscoremat,
-      chemCompMZ_subset,
-      by = c("Formula", "Adduct"),
-      allow.cartesian = TRUE  
+        chemscoremat,
+        chemCompMZ_subset,
+        by = c("Formula", "Adduct"),
+        allow.cartesian = TRUE
     )
     chemscoremat <- as.data.frame(chemscoremat)
-    
-    # y because we want chemCompMZ ID and Name
-    chemscoremat <- chemscoremat[, c("cur_chem_score", "Module_RTclust", 
-        "mz", "time", "MatchCategory", "theoretical.mz", 
-        "chemical_ID.y", "Name.y", "Formula", "MonoisotopicMass", 
-        "tempadduct", "ISgroup", "mean_int_vec", "MD")]
-    
-    
-    
-    colnames(chemscoremat) <- c("cur_chem_score", "Module_RTclust", 
-        "mz", "time", "MatchCategory", "theoretical.mz", 
-        "chemical_ID", "Name", "Formula", "MonoisotopicMass", 
-        "Adduct", "ISgroup", "mean_int_vec", "MD")
-    
-    
+
+    # Select and rename columns per original layout
+    chemscoremat <- chemscoremat[, c("cur_chem_score", "Module_RTclust",
+                                     "mz", "time", "MatchCategory", "theoretical.mz",
+                                     "chemical_ID.y", "Name.y", "Formula", "MonoisotopicMass",
+                                     "tempadduct", "ISgroup", "mean_int_vec", "MD")]
+    colnames(chemscoremat) <- c("cur_chem_score", "Module_RTclust",
+                                "mz", "time", "MatchCategory", "theoretical.mz",
+                                "chemical_ID", "Name", "Formula", "MonoisotopicMass",
+                                "Adduct", "ISgroup", "mean_int_vec", "MD")
+
+    # Remove known bad HMDB IDs (as in original)
     hmdbbad <- c("HMDB29244", "HMDB29245", "HMDB29246")
-    
-    if (length(which(chemscoremat$chemical_ID %in% hmdbbad)) > 
-        0) {
-        chemscoremat <- chemscoremat[-which(chemscoremat$chemical_ID %in% 
-            hmdbbad), ]
+    if (length(which(chemscoremat$chemical_ID %in% hmdbbad)) > 0) {
+        chemscoremat <- chemscoremat[-which(chemscoremat$chemical_ID %in% hmdbbad), ]
     }
-    
-    otherchems <- mchemdata[which(chemscoremat$mz %in% chemscoremat)]
-    
+
+    # Standardize column names
     cnames <- colnames(chemscoremat)
     cnames[1] <- "score"
     colnames(chemscoremat) <- cnames
-    
-    
-    
-    
-    # corthresh*(1/(max_diff_rt))*2
-    
-    pthresh = 0.05
-    
+
+    # Remove rows with missing values in critical fields (restore original behavior and user-facing message)
+    critical_cols <- c("Formula", "Adduct", "mz", "time", "chemical_ID", "theoretical.mz")
+    critical_cols <- critical_cols[critical_cols %in% colnames(chemscoremat)]
+    if (length(critical_cols) > 0) {
+        complete_idx <- stats::complete.cases(chemscoremat[, critical_cols, drop = FALSE])
+        if (any(!complete_idx)) {
+            cat("Removing rows with missing values\n")
+            chemscoremat <- chemscoremat[complete_idx, , drop = FALSE]
+        }
+    }
+
+    return(chemscoremat)
+}
+
+# Helper: Apply pathway-based network scoring adjustments (DB-specific)
+.apply_pathway_network_scoring <- function(chemscoremat, db_name, adduct_weights, scorethresh, pathwaycheckmode, max_diff_rt) {
+    pthresh <- 0.05
+
     if (db_name == "KEGG") {
         data(keggotherinf)
-        
-        
-        # keggotherinf<-dbAllinf
-        
         m1 <- apply(keggotherinf, 1, function(x) {
             chemid <- x[1]
             g1 <- gregexpr(x[4], pattern = "map")
@@ -166,287 +138,125 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                 return(cbind(chemid, pathid))
             }
         })
-        
         m2 <- ldply(m1, rbind)
-        
-        # Convert both to data.tables 
+
+        # Use data.table merge to append KEGG info
         setDT(chemscoremat)
         setDT(keggotherinf)
-       
         chemscoremat <- merge(
           chemscoremat,
           keggotherinf,
           by.x = "chemical_ID",
           by.y = "KEGGID",
-          all = FALSE,              
-          allow.cartesian = TRUE   
+          all = FALSE,
+          allow.cartesian = TRUE
         )
         chemscoremat <- as.data.frame(chemscoremat)
-        
-        # write.table(chemscoremat,file=paste('xMSannotator_',db_name,'scorematotherinf_stage1.txt',sep=''),sep='\t',row.names=FALSE)
-        # chemscoremat<-read.table('xMSannotator_KEGGscorematotherinf_stage1.txt',sep='\t',header=TRUE)
-        
-        
-        
-        
+
         chemids <- as.character(chemscoremat$chemical_ID)
-        
-        pathway_ids <- as.character(m2[, 2])
-        
-        pathway_ids <- unique(pathway_ids)
-        
-        module_num <- gsub(chemscoremat$Module_RTclust, pattern = "_[0-9]*", 
-            replacement = "")
-        
+        pathway_ids <- unique(as.character(m2[, 2]))
+        module_num <- gsub(chemscoremat$Module_RTclust, pattern = "_[0-9]*", replacement = "")
         chemscoremat <- cbind(chemscoremat, module_num)
-        
         chemscoremat_orig <- chemscoremat
-        
         chemscoremat <- chemscoremat_orig
-        
         total_chem_count <- length(unique(m2$chemid))
-        
+
         if (is.na(pathwaycheckmode) == FALSE) {
-            
-            
             for (path_id in pathway_ids) {
-                
                 if (path_id != "-" & path_id != "map01100") {
-                  pathway_chemicals <- m2[which(m2[, 2] %in% 
-                    path_id), 1]  #m2[which(m2[,2]%in%pathwayscurchemical),1]
-                  
-                  curmchemicaldata1 <- chemscoremat[which(chemscoremat$chemical_ID %in% 
-                    pathway_chemicals & chemscoremat$score >= 
-                    scorethresh & chemscoremat$Adduct %in% 
-                    as.character(adduct_weights[, 1])), ]
-                  
-                  # molecules of interest in pathway (a)
-                  num_chems_inpath <- length(unique(curmchemicaldata1$chemical_ID))  #^5
-                  
-                  # total number of chemicals in pathway
+                    pathway_chemicals <- m2[which(m2[, 2] %in% path_id), 1]
+                    curmchemicaldata1 <- chemscoremat[which(chemscoremat$chemical_ID %in% pathway_chemicals &
+                                                             chemscoremat$score >= scorethresh &
+                                                             chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]
+                    num_chems_inpath <- length(unique(curmchemicaldata1$chemical_ID))
                   all_cur_path_numchem <- length(unique(pathway_chemicals))
-                  
-                  # non-focus molecules associated with pathway (c)
-                  num_chem_inpath_notinterest <- all_cur_path_numchem - 
-                    num_chems_inpath
-                  
-                  
-                  curmchemicaldata2 <- chemscoremat[which(chemscoremat$score >= 
-                    scorethresh & chemscoremat$Adduct %in% 
-                    as.character(adduct_weights[, 1])), ]
-                  
-                  curmchemicaldata2 <- curmchemicaldata2[-which(curmchemicaldata2$chemical_ID %in% 
-                    pathway_chemicals), ]
-                  
-                  # focus molecules not associated with this pathway (b)
+                    curmchemicaldata2 <- chemscoremat[which(chemscoremat$score >= scorethresh &
+                                                             chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]
+                    curmchemicaldata2 <- curmchemicaldata2[-which(curmchemicaldata2$chemical_ID %in% pathway_chemicals), ]
                   num_chems_notinpath <- length(unique(curmchemicaldata2$chemical_ID))
-                  
-                  
-                  all_notcurpath_numchem <- length(m2[-which(m2[, 
-                    1] %in% curmchemicaldata2$chemical_ID), 
-                    1])  #length(m2[-which(m2[,2]%in%path_id),1])
-                  
-                  # counts=matrix(data=c(num_chems_inpath,num_chems_notinpath,all_cur_path_numchem,all_notcurpath_numchem),nrow=2)
-                  
-                  counts = matrix(data = c(num_chems_inpath, 
-                    num_chem_inpath_notinterest, num_chems_notinpath, 
+                    all_notcurpath_numchem <- length(m2[-which(m2[, 1] %in% curmchemicaldata2$chemical_ID), 1])
+                    counts <- matrix(data = c(num_chems_inpath,
+                                              all_cur_path_numchem - num_chems_inpath,
+                                              num_chems_notinpath,
                     all_notcurpath_numchem), nrow = 2)
-                  
-                  rm(curmchemicaldata2)
-                  gc()
-                  p1 <- fisher.test(counts)
-                  p1 <- p1$p.value
-                  
-                  if (p1 > pthresh) {
-                    
-                    next
-                  } else {
-                    
-                    
+                    rm(curmchemicaldata2); gc()
+                    p1 <- fisher.test(counts)$p.value
+                    if (p1 <= pthresh) {
                     t1 <- table(curmchemicaldata1$module_num)
-                    
                     module_counts <- t1[which(t1 > 0)]
-                    
                     module_names <- names(module_counts)
-                    
                     pathway_chemicals_1 <- curmchemicaldata1$chemical_ID
-                    
                     for (c in pathway_chemicals_1) {
-                      curmchemicaldata <- curmchemicaldata1[which(as.character(curmchemicaldata1$chemical_ID) == 
-                        c), ]
-                      chem_path_data <- m2[which(m2$chemid == 
-                        c), ]
+                            curmchemicaldata <- curmchemicaldata1[which(as.character(curmchemicaldata1$chemical_ID) == c), ]
+                            chem_path_data <- m2[which(m2$chemid == c), ]
                       total_num_chem <- 0
                       t2 <- table(curmchemicaldata$module_num)
-                      cur_module <- names(t2[which(t2 == 
-                        max(t2)[1])])
+                            cur_module <- names(t2[which(t2 == max(t2)[1])])
                       total_num_chem <- length(pathway_chemicals)
-                      
-                      mzid_cur <- paste(curmchemicaldata$mz, 
-                        curmchemicaldata$time, sep = "_")
-                      
-                      # dweights<-alldegrees[which(mzid%in%mzid_cur),1]
-                      
+                            mzid_cur <- paste(curmchemicaldata$mz, curmchemicaldata$time, sep = "_")
                       if (nrow(curmchemicaldata) > 0) {
-                        pathwayscurchemical <- m2[which(m2[, 
-                          1] == c), 2]
-                        # for(cur_module in cur_modules)
-                        {
-                          
-                          if (pathwaycheckmode == "pm") {
+                                # per-module counts and Fisher test
                             num_chems <- t1[as.character(cur_module)]
-                          }
-                          
-                          # num_chems<-100*(num_chems/total_num_chem)
-                          
-                          # if(num_chems>1 &&
-                          # length(which(dweights>min(alldegrees[,1])))>=1){
-                          # num_chems=10 }
-                          
                           num_chems <- round(num_chems, 0)
-                          
-                          num_chems_inmodule <- length(unique(curmchemicaldata1$chemical_ID[which(curmchemicaldata$module_num == 
-                            cur_module)]))  #^5
-                          
-                          cur_module_data <- chemscoremat[which(chemscoremat$module_num == 
-                            cur_module & chemscoremat$chemical_ID %in% 
-                            pathway_chemicals & chemscoremat$score >= 
-                            scorethresh & chemscoremat$Adduct %in% 
-                            as.character(adduct_weights[, 
-                              1])), ]
-                          a <- length(unique(cur_module_data$chemical_ID))
-                          rm(cur_module_data)
-                          gc()
-                          
-                          cur_module_data2 <- chemscoremat[which(chemscoremat$module_num == 
-                            cur_module & chemscoremat$score >= 
-                            scorethresh & chemscoremat$Adduct %in% 
-                            as.character(adduct_weights[, 
-                              1])), ]
-                          b <- length(unique(cur_module_data2$chemical_ID)) - 
-                            a
-                          rm(cur_module_data2)
-                          gc()
-                          
-                          other_module_data <- chemscoremat[which(chemscoremat$module_num != 
-                            cur_module & chemscoremat$chemical_ID %in% 
-                            pathway_chemicals & chemscoremat$score >= 
-                            scorethresh & chemscoremat$Adduct %in% 
-                            as.character(adduct_weights[, 
-                              1])), ]
-                          c <- length(unique(other_module_data$chemical_ID))
-                          rm(other_module_data)
-                          gc()
-                          
-                          other_module_data2 <- chemscoremat[which(chemscoremat$module_num != 
-                            cur_module & chemscoremat$score >= 
-                            scorethresh & chemscoremat$Adduct %in% 
-                            as.character(adduct_weights[, 
-                              1])), ]
-                          
-                          
-                          
-                          
-                          d <- length(unique(other_module_data2$chemical_ID)) - 
-                            c
-                          rm(other_module_data2)
-                          gc()
-                          
-                          
-                          counts = matrix(data = c(a, c, 
-                            b, d), nrow = 2)
-                          if (a > 1) {
-                            p1 <- fisher.test(counts)
-                            p1 <- p1$p.value
-                          } else {
-                            
-                            p1 = 1
-                          }
-                          
-                          if (p1 > 0.2) {
-                            
-                            next
-                            
-                          } else {
-                            
+                                a <- length(unique(chemscoremat[which(chemscoremat$module_num == cur_module &
+                                                                       chemscoremat$chemical_ID %in% pathway_chemicals &
+                                                                       chemscoremat$score >= scorethresh &
+                                                                       chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID))
+                                b <- length(unique(chemscoremat[which(chemscoremat$module_num == cur_module &
+                                                                       chemscoremat$score >= scorethresh &
+                                                                       chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID)) - a
+                                c_count <- length(unique(chemscoremat[which(chemscoremat$module_num != cur_module &
+                                                                             chemscoremat$chemical_ID %in% pathway_chemicals &
+                                                                             chemscoremat$score >= scorethresh &
+                                                                             chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID))
+                                d <- length(unique(chemscoremat[which(chemscoremat$module_num != cur_module &
+                                                                      chemscoremat$score >= scorethresh &
+                                                                      chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID)) - c_count
+                                counts_md <- matrix(data = c(a, c_count, b, d), nrow = 2)
+                                p1 <- if (a > 1) fisher.test(counts_md)$p.value else 1
+                                if (p1 <= 0.2) {
                             if (num_chems[1] < 3) {
-                              
                               num_chems <- 0
                             } else {
-                              if (is.na(curmchemicaldata$score[1]) == 
-                                TRUE) {
-                                
-                                diff_rt <- max(curmchemicaldata$time) - 
-                                  min(curmchemicaldata$time)
-                                
+                                        if (is.na(curmchemicaldata$score[1]) == TRUE) {
+                                            diff_rt <- max(curmchemicaldata$time) - min(curmchemicaldata$time)
                                 if (diff_rt > max_diff_rt) {
-                                  if (length(which(t2 > 1)) == 
-                                    1) {
-                                    curmchemicaldata$score <- rep(0.1, 
-                                      length(curmchemicaldata$score))
+                                                if (length(which(t2 > 1)) == 1) {
+                                                    curmchemicaldata$score <- rep(0.1, length(curmchemicaldata$score))
                                   } else {
-                                    curmchemicaldata$score <- rep(0, 
-                                      length(curmchemicaldata$score))
+                                                    curmchemicaldata$score <- rep(0, length(curmchemicaldata$score))
                                   }
                                 } else {
-                                  curmchemicaldata$score <- rep(0, 
-                                    length(curmchemicaldata$score))
+                                                curmchemicaldata$score <- rep(0, length(curmchemicaldata$score))
                                 }
                               }
-                              
-                              if (curmchemicaldata$score[1] < 
-                                scorethresh) {
-                                chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                  c & chemscoremat$Adduct %in% 
-                                  as.character(adduct_weights[, 
-                                    1]))] = as.numeric(chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                  c & chemscoremat$Adduct %in% 
-                                  as.character(adduct_weights[, 
-                                    1]))][1]) + num_chems
-                                
+                                        if (curmchemicaldata$score[1] < scorethresh) {
+                                            chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == c &
+                                                                     chemscoremat$Adduct %in% as.character(adduct_weights[, 1]))] <-
+                                                as.numeric(chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == c &
+                                                                                    chemscoremat$Adduct %in% as.character(adduct_weights[, 1]))][1]) + num_chems
                               } else {
-                                
-                                
-                                chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                  c)] = chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                  c)][1] + num_chems
-                                
-                                
+                                            chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == c)] <-
+                                                chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == c)][1] + num_chems
                               }
                             }
                           }
                         }
-                        # chemscoremat[which(as.character(chemscoremat$chemical_ID)==c),]
                       }
                     }
-                  }
-                  
                 }
-                rm(curmchemicaldata1)
-                gc()
+                rm(curmchemicaldata1); gc()
             }
-        }
-        
+            # Standardize column names after merge side-effects
         cnames <- colnames(chemscoremat)
-        
         cnames <- gsub(cnames, pattern = ".x", replacement = "")
-        
         colnames(chemscoremat) <- cnames
-        
-        # write.table(chemscoremat,file=paste('xMSannotator_',db_name,'scorematotherinf_stage2.txt',sep=''),sep='\t',row.names=FALSE)
-    } else {
-        
-        if (db_name == "HMDB") {
+        }
+    } else if (db_name == "HMDB") {
             data(hmdbAllinf)
-            
-            hmdbAllinfv3.5 <- hmdbAllinf[, -c(26:27)]  #dbAllinf[,-c(26:27)]
-            rm(hmdbAllinf, envir = .GlobalEnv)
+        hmdbAllinfv3.5 <- hmdbAllinf[, -c(26:27)]
+        suppressWarnings(try(rm(hmdbAllinf, envir = .GlobalEnv), silent = TRUE))
             gc()
-            
-            # hmdbAllinfv3.5<-gsub(x=hmdbAllinfv3.5,pattern='\n[\\s]+',replacement='')
-            
-            # replace(as.matrix(hmdbAllinfv3.5),which(hmdbAllinfv3.5=='\n'),'')
-            
             m1 <- apply(hmdbAllinfv3.5, 1, function(x) {
                 chemid <- x[1]
                 g1 <- gregexpr(x[14], pattern = "SM")
@@ -460,374 +270,167 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
                   return(cbind(chemid, pathid))
                 }
             })
-            
             m2 <- ldply(m1, rbind)
-            
             setDT(chemscoremat)
             setDT(hmdbAllinfv3.5)
-            
-            chemscoremat <- merge(chemscoremat, hmdbAllinfv3.5, 
+            chemscoremat <- merge(chemscoremat, hmdbAllinfv3.5,
                 by.x = "chemical_ID", by.y = "HMDBID", allow.cartesian = TRUE)
-            
             chemscoremat <- as.data.frame(chemscoremat)
-            
-            # write.table(chemscoremat,file=paste('xMSannotator_',db_name,'scoremat_stage1.txt',sep=''),sep='\t',row.names=FALSE)
-            
-            rm(hmdbAllinfv3.5)
-            gc()
-            
+
             chemids <- as.character(chemscoremat$chemical_ID)
-            
-            pathway_ids <- as.character(m2[, 2])
-            
-            pathway_ids <- unique(pathway_ids)
-            
-            module_num <- gsub(chemscoremat$Module_RTclust, 
-                pattern = "_[0-9]*", replacement = "")
-            
+        pathway_ids <- unique(as.character(m2[, 2]))
+        module_num <- gsub(chemscoremat$Module_RTclust, pattern = "_[0-9]*", replacement = "")
             chemscoremat <- cbind(chemscoremat, module_num)
-            
             chemscoremat_orig <- chemscoremat
-            
             chemscoremat <- chemscoremat_orig
-            
             total_chem_count <- length(unique(m2$chemid))
-            
-            
+
             if (is.na(pathwaycheckmode) == FALSE) {
-                
                 for (path_id in pathway_ids) {
-                  
                   if (path_id != "-") {
-                    pathway_chemicals <- m2[which(m2[, 2] %in% 
-                      path_id), 1]  #m2[which(m2[,2]%in%pathwayscurchemical),1]
-                    
-                    
-                    curmchemicaldata1 <- chemscoremat[which(chemscoremat$chemical_ID %in% 
-                      pathway_chemicals & chemscoremat$score >= 
-                      scorethresh & chemscoremat$Adduct %in% 
-                      as.character(adduct_weights[, 1])), 
-                      ]
-                    
-                    # molecules of interest in pathway (a)
-                    num_chems_inpath <- length(unique(curmchemicaldata1$chemical_ID))  #^5
-                    
-                    # total number of chemicals in pathway
+                    pathway_chemicals <- m2[which(m2[, 2] %in% path_id), 1]
+                    curmchemicaldata1 <- chemscoremat[which(chemscoremat$chemical_ID %in% pathway_chemicals &
+                                                             chemscoremat$score >= scorethresh &
+                                                             chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]
+                    num_chems_inpath <- length(unique(curmchemicaldata1$chemical_ID))
                     all_cur_path_numchem <- length(unique(pathway_chemicals))
-                    
-                    # non-focus molecules associated with pathway (c)
-                    num_chem_inpath_notinterest <- all_cur_path_numchem - 
-                      num_chems_inpath
-                    
-                    
-                    curmchemicaldata2 <- chemscoremat[which(chemscoremat$score >= 
-                      scorethresh & chemscoremat$Adduct %in% 
-                      as.character(adduct_weights[, 1])), 
-                      ]
-                    
-                    curmchemicaldata2 <- curmchemicaldata2[-which(curmchemicaldata2$chemical_ID %in% 
-                      pathway_chemicals), ]
-                    
-                    # focus molecules not associated with this pathway (b)
+                    curmchemicaldata2 <- chemscoremat[which(chemscoremat$score >= scorethresh &
+                                                             chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]
+                    curmchemicaldata2 <- curmchemicaldata2[-which(curmchemicaldata2$chemical_ID %in% pathway_chemicals), ]
                     num_chems_notinpath <- length(unique(curmchemicaldata2$chemical_ID))
-                    
-                    
-                    all_notcurpath_numchem <- length(m2[-which(m2[, 
-                      1] %in% curmchemicaldata2$chemical_ID), 
-                      1])  #length(m2[-which(m2[,2]%in%path_id),1])
-                    
-                    # counts=matrix(data=c(num_chems_inpath,num_chems_notinpath,all_cur_path_numchem,all_notcurpath_numchem),nrow=2)
-                    
-                    counts = matrix(data = c(num_chems_inpath, 
-                      num_chem_inpath_notinterest, num_chems_notinpath, 
+                    all_notcurpath_numchem <- length(m2[-which(m2[, 1] %in% curmchemicaldata2$chemical_ID), 1])
+                    counts <- matrix(data = c(num_chems_inpath,
+                                              all_cur_path_numchem - num_chems_inpath,
+                                              num_chems_notinpath,
                       all_notcurpath_numchem), nrow = 2)
-                    
-                    rm(curmchemicaldata2)
-                    gc()
-                    p1 <- fisher.test(counts)
-                    p1 <- p1$p.value
-                    
-                    
-                    
-                    
-                    if (p1 > pthresh) {
-                      
-                      next
-                    } else {
-                      
-                      
-                      # num_chems<-length(unique(curmchemicaldata$chemical_ID))^5
-                      
+                    rm(curmchemicaldata2); gc()
+                    p1 <- fisher.test(counts)$p.value
+                    if (p1 <= pthresh) {
                       t1 <- table(curmchemicaldata1$module_num)
-                      
                       module_counts <- t1[which(t1 > 0)]
-                      
                       module_names <- names(module_counts)
-                      
                       pathway_chemicals_1 <- curmchemicaldata1$chemical_ID
-                      
                       for (chemname in pathway_chemicals) {
-                        
-                        
-                        # curmchemicaldata<-curmchemicaldata
-                        # #chemscoremat[which(as.character(chemscoremat$chemical_ID)==c),]
-                        # #&
-                        # chemscoremat$Adduct%in%as.character(adduct_weights[,1])),]
-                        
-                        
-                        curmchemicaldata <- curmchemicaldata1[which(as.character(curmchemicaldata1$chemical_ID) == 
-                          chemname), ]
-                        
+                            curmchemicaldata <- curmchemicaldata1[which(as.character(curmchemicaldata1$chemical_ID) == chemname), ]
                         if (nrow(curmchemicaldata) > 0) {
-                          chem_path_data <- m2[which(m2$chemid == 
-                            chemname), ]
-                          
-                          
-                          
-                          # cur_module<-max(curmchemicaldata$module_num)[1]
                           t2 <- table(curmchemicaldata$module_num)
-                          
-                          cur_module <- names(t2[which(t2 == 
-                            max(t2)[1])])
-                          
-                          mzid_cur <- paste(curmchemicaldata$mz, 
-                            curmchemicaldata$time, sep = "_")
-                          
-                          # dweights<-alldegrees[which(mzid%in%mzid_cur),1]
-                          
-                          
-                          pathwayscurchemical <- m2[which(m2[, 
-                            1] == chemname), 2]
-                          # for(cur_module in cur_modules)
-                          {
-                            if (pathwaycheckmode == "pm") {
+                                cur_module <- names(t2[which(t2 == max(t2)[1])])
+                                mzid_cur <- paste(curmchemicaldata$mz, curmchemicaldata$time, sep = "_")
                               num_chems <- t1[as.character(cur_module)]
-                            }
-                            # if(num_chems>1 &&
-                            # length(which(dweights>min(alldegrees[,1])))>=1){
-                            # num_chems=10 }
                             total_num_chem <- length(pathway_chemicals)
-                            
-                            
-                            # num_chems<-100*(num_chems/total_num_chem)
-                            
-                            num_chems <- round(num_chems, 
-                              0)
-                            
-                            num_chems_inmodule <- length(unique(curmchemicaldata1$chemical_ID[which(curmchemicaldata$module_num == 
-                              cur_module)]))  #^5
-                            
-                            cur_module_data <- chemscoremat[which(chemscoremat$module_num == 
-                              cur_module & chemscoremat$chemical_ID %in% 
-                              pathway_chemicals & chemscoremat$score >= 
-                              scorethresh & chemscoremat$Adduct %in% 
-                              as.character(adduct_weights[, 
-                                1])), ]
-                            a <- length(unique(cur_module_data$chemical_ID))
-                            rm(cur_module_data)
-                            gc()
-                            
-                            cur_module_data2 <- chemscoremat[which(chemscoremat$module_num == 
-                              cur_module & chemscoremat$score >= 
-                              scorethresh & chemscoremat$Adduct %in% 
-                              as.character(adduct_weights[, 
-                                1])), ]
-                            b <- length(unique(cur_module_data2$chemical_ID)) - 
-                              a
-                            rm(cur_module_data2)
-                            gc()
-                            
-                            other_module_data <- chemscoremat[which(chemscoremat$module_num != 
-                              cur_module & chemscoremat$chemical_ID %in% 
-                              pathway_chemicals & chemscoremat$score >= 
-                              scorethresh & chemscoremat$Adduct %in% 
-                              as.character(adduct_weights[, 
-                                1])), ]
-                            c <- length(unique(other_module_data$chemical_ID))
-                            rm(other_module_data)
-                            gc()
-                            
-                            other_module_data2 <- chemscoremat[which(chemscoremat$module_num != 
-                              cur_module & chemscoremat$score >= 
-                              scorethresh & chemscoremat$Adduct %in% 
-                              as.character(adduct_weights[, 
-                                1])), ]
-                            
-                            d <- length(unique(other_module_data2$chemical_ID)) - 
-                              c
-                            rm(other_module_data2)
-                            gc()
-                            
-                            counts = matrix(data = c(a, c, 
-                              b, d), nrow = 2)
-                            
-                            if (a > 1) {
-                              p1 <- fisher.test(counts)
-                              p1 <- p1$p.value
-                            } else {
-                              
-                              p1 = 1
-                            }
-                            
-                            
-                            # p1=0
-                            
-                            if (p1 > 0.2) {
-                              
-                              next
-                              
-                            } else {
-                              
+                                num_chems <- round(num_chems, 0)
+                                a <- length(unique(chemscoremat[which(chemscoremat$module_num == cur_module &
+                                                                       chemscoremat$chemical_ID %in% pathway_chemicals &
+                                                                       chemscoremat$score >= scorethresh &
+                                                                       chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID))
+                                b <- length(unique(chemscoremat[which(chemscoremat$module_num == cur_module &
+                                                                       chemscoremat$score >= scorethresh &
+                                                                       chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID)) - a
+                                c_count <- length(unique(chemscoremat[which(chemscoremat$module_num != cur_module &
+                                                                             chemscoremat$chemical_ID %in% pathway_chemicals &
+                                                                             chemscoremat$score >= scorethresh &
+                                                                             chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID))
+                                d <- length(unique(chemscoremat[which(chemscoremat$module_num != cur_module &
+                                                                      chemscoremat$score >= scorethresh &
+                                                                      chemscoremat$Adduct %in% as.character(adduct_weights[, 1])), ]$chemical_ID)) - c_count
+                                counts_md <- matrix(data = c(a, c_count, b, d), nrow = 2)
+                                p1 <- if (a > 1) fisher.test(counts_md)$p.value else 1
+                                if (p1 <= 0.2) {
                               if (num_chems[1] < 3) {
-                                
                                 num_chems <- 0
-                              } else {
-                                
-                                if (is.na(curmchemicaldata$score[1]) == 
-                                  TRUE) {
-                                  
-                                  diff_rt <- max(curmchemicaldata$time) - 
-                                    min(curmchemicaldata$time)
-                                  
-                                  if (diff_rt > max_diff_rt) {
-                                    if (length(which(t2 > 
-                                      1)) == 1) {
-                                      curmchemicaldata$score <- rep(0.1, 
-                                        length(curmchemicaldata$score))
                                     } else {
-                                      curmchemicaldata$score <- rep(0, 
-                                        length(curmchemicaldata$score))
+                                        if (is.na(curmchemicaldata$score[1]) == TRUE) {
+                                            diff_rt <- max(curmchemicaldata$time) - min(curmchemicaldata$time)
+                                            if (diff_rt > max_diff_rt) {
+                                                if (length(which(t2 > 1)) == 1) {
+                                                    curmchemicaldata$score <- rep(0.1, length(curmchemicaldata$score))
+                                                } else {
+                                                    curmchemicaldata$score <- rep(0, length(curmchemicaldata$score))
                                     }
                                   } else {
-                                    curmchemicaldata$score <- rep(0, 
-                                      length(curmchemicaldata$score))
+                                                curmchemicaldata$score <- rep(0, length(curmchemicaldata$score))
                                   }
                                 }
-                                
-                                # print('here') print(curmchemicaldata$score)
-                                # print(num_chems)
-                                
-                                
-                                if (curmchemicaldata$score[1] < 
-                                  scorethresh) {
-                                  
-                                  # chemscoremat$score[which(as.character(chemscoremat$chemical_ID)==c
-                                  # & chemscoremat$module_num==cur_module &
-                                  # chemscoremat$Adduct%in%as.character(adduct_weights[,1]))]=as.numeric(chemscoremat$score[which(as.character(chemscoremat$chemical_ID)==c
-                                  # &
-                                  # chemscoremat$Adduct%in%as.character(adduct_weights[,1]))][1])+num_chems
-                                  
-                                  chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                    chemname & chemscoremat$Adduct %in% 
-                                    as.character(adduct_weights[, 
-                                      1]))] = as.numeric(chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                    chemname & chemscoremat$Adduct %in% 
-                                    as.character(adduct_weights[, 
-                                      1]))][1]) + num_chems
-                                  
+                                        if (curmchemicaldata$score[1] < scorethresh) {
+                                            chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == chemname &
+                                                                     chemscoremat$Adduct %in% as.character(adduct_weights[, 1]))] <-
+                                                as.numeric(chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == chemname &
+                                                                                    chemscoremat$Adduct %in% as.character(adduct_weights[, 1]))][1]) + num_chems
                                 } else {
-                                  # chemscoremat$score[which(as.character(chemscoremat$chemical_ID)==c
-                                  # &
-                                  # chemscoremat$module_num==cur_module)]=chemscoremat$score[which(as.character(chemscoremat$chemical_ID)==c)][1]+num_chems
-                                  
-                                  chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                    chemname)] = chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == 
-                                    chemname)][1] + num_chems
-                                  
-                                  
+                                            chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == chemname)] <-
+                                                chemscoremat$score[which(as.character(chemscoremat$chemical_ID) == chemname)][1] + num_chems
                                 }
                               }
                             }
                           }
                         }
-                        
-                      }
                     }
-                    
                   }
-                  rm(curmchemicaldata1)
-                  gc()
+                rm(curmchemicaldata1); gc()
                 }
-                
-                
-                
-            }
-            
-            
             cnames <- colnames(chemscoremat)
-            
             cnames <- gsub(cnames, pattern = ".x", replacement = "")
-            
             colnames(chemscoremat) <- cnames
-            
-            # write.table(chemscoremat,file=paste('xMSannotator_',db_name,'scoremat_stage2.txt',sep=''),sep='\t',row.names=FALSE)
-        } else {
-            
-            # if(db_name=='T3DB'){
-            
-            # load('/Users/karanuppal/Documents/Emory/JonesLab/Projects/xMSannotator/t3dbotherinf.Rda')
-            # chemscoremat_otherinf<-merge(chemscoremat,t3dbotherinf,by.x='chemical_ID',by.y='T3DB.ID')
-            
-            # write.table(chemscoremat_otherinf,file=paste('xMSannotator_',db_name,'scoremat_stage1.txt',sep=''),sep='\t',row.names=FALSE)
-            # rm(chemscoremat_otherinf)
-            
-            
-            # }
-            
         }
     }
-    
-    rm(curmchemicaldata1)
-    gc()
-    
-    cnames <- colnames(chemscoremat)
-    
-    cnames <- gsub(cnames, pattern = ".x", replacement = "")
-    
-    colnames(chemscoremat) <- cnames
-    multiresmat <- chemscoremat  #mchemdata_orig
-    
-    cnames <- colnames(chemscoremat)
-    
-    # chemscoremat$score[which(chemscoremat$chemical_ID%in%boostIDs)]<-max(chemscoremat$score,na.rm=TRUE)*100
-    
-    
-    
+
+    return(chemscoremat)
+}
+
+# Helper: Extract high-confidence subset and write Stage3.csv
+.extract_and_write_stage3 <- function(outloc1, chemscoremat, scorethresh) {
+    # Standardize and subset columns
+    chemscoremat <- chemscoremat
     good_ind <- which(chemscoremat$score >= scorethresh)
-    
-    chemscoremat_highconf <- {
-    }
-    if (length(good_ind) > 0) {
-        
-        chemscoremat_highconf <- chemscoremat  #[which(chemscoremat$score>=scorethresh),]
-        rm(chemscoremat)
-        gc()
-    }
-    
-    
-    chemscoremat_highconf <- chemscoremat_highconf[, c("chemical_ID", 
-        "score", "Module_RTclust", "mz", "time", "MatchCategory", 
-        "theoretical.mz", "Name", "Formula", "MonoisotopicMass", 
+    chemscoremat_highconf <- chemscoremat
+
+    chemscoremat_highconf <- chemscoremat_highconf[, c("chemical_ID",
+        "score", "Module_RTclust", "mz", "time", "MatchCategory",
+        "theoretical.mz", "Name", "Formula", "MonoisotopicMass",
         "Adduct", "ISgroup", "mean_int_vec", "MD")]
-    
-    # chemscoremat_highconf1<-chemscoremat_highconf[,c(1:12,14:15)]
-    
-    
-    write.csv(chemscoremat_highconf, file = "../Stage3.csv", 
-        row.names = FALSE)
-    
-    rm(chemscoremat_orig)
-    
-    rm("mchemdata", "chemids", "adduct_table", "global_cor", 
-        "mzid", "max_diff_rt", "isop_res_md", "corthresh", 
-        "level_module_isop_annot", "chemids_split", "dataA", 
-        "corthresh", "max.mz.diff", "outloc", "num_sets", 
-        "db_name", "num_nodes", "num_sets", "adduct_weights", 
-        "filter.by")
-    rm("chemCompMZ", "mchemdata", "hmdbAllinf", "hmdbAllinfv3.6", 
-        "dbAllinf")
+
+    stage3_path <- file.path(outloc1, "Stage3.csv")
+    write.csv(chemscoremat_highconf, file = stage3_path, row.names = FALSE)
+    message("[Stage 3] Wrote Stage3.csv to ", normalizePath(stage3_path, winslash = "/", mustWork = FALSE))
+
+    return(chemscoremat_highconf)
+}
+
+multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
+    num_sets = NA, boostIDs = NA, pathwaycheckmode = "p",
+    dbAllinf = NA, scorethresh = 0.1) {
+
+    .load_step3_context(outloc1)
+
+    # Derive num_sets consistent with original behavior
+    num_sets_1 <- if (!is.na(num_sets)) num_sets else NA
+    num_sets_final <- length(chemids_split)
+    if (!is.na(num_sets_1)) num_sets_final <- num_sets_1
+    if (num_sets_final >= length(chemids_split)) num_sets_final <- length(chemids_split)
+
+    # Graph construction
+    chemscoremat <- .build_graph_from_stage2(outloc1, adduct_weights, num_sets_final)
+
+    # Network scoring
+    chemscoremat <- .apply_pathway_network_scoring(
+        chemscoremat = chemscoremat,
+        db_name = db_name,
+        adduct_weights = adduct_weights,
+        scorethresh = scorethresh,
+        pathwaycheckmode = pathwaycheckmode,
+        max_diff_rt = max_diff_rt
+    )
+
+    # Subset extraction + write Stage3.csv
+    chemscoremat_highconf <- .extract_and_write_stage3(outloc1, chemscoremat, scorethresh)
+
+    # Cleanup mirroring original intent
+    suppressWarnings(try(rm(chemCompMZ), silent = TRUE))
+    suppressWarnings(try(rm(mchemdata), silent = TRUE))
+    suppressWarnings(try(rm(hmdbAllinf), silent = TRUE))
+    suppressWarnings(try(rm(hmdbAllinfv3.6), silent = TRUE))
+    suppressWarnings(try(rm(dbAllinf), silent = TRUE))
     gc()
-    
-    
+
     return(chemscoremat_highconf)
 }
